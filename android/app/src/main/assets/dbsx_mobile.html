@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#4a7cf7">
+<title>dbsx 待办事项</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,"Microsoft YaHei",sans-serif; background:#f0f3f9; color:#2c3e50; padding:0 0 env(safe-area-inset-bottom); }
+  header { background:#4a7cf7; color:#fff; padding:16px 16px calc(16px + env(safe-area-inset-top)); position:sticky; top:0; z-index:10; }
+  header h1 { font-size:20px; display:inline-block; }
+  .hdr-btn { float:right; background:rgba(255,255,255,.2); border:none; color:#fff; border-radius:8px; padding:6px 10px; font-size:13px; margin-left:8px; }
+  .card { background:#fff; border-radius:14px; padding:14px; margin:12px; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+  .inp { width:100%; padding:11px 12px; border:1px solid #dde3ee; border-radius:10px; font-size:16px; outline:none; margin-bottom:10px; background:#fafbfe; }
+  .inp:focus { border-color:#4a7cf7; background:#fff; }
+  .row2 { display:flex; gap:10px; }
+  .row2 > div { flex:1; }
+  .lbl { font-size:12px; color:#8895aa; margin-bottom:4px; display:block; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:14px; margin:2px 0 10px; }
+  .chk input { width:18px; height:18px; }
+  .btn-main { width:100%; background:#4a7cf7; color:#fff; border:none; border-radius:10px; padding:13px; font-size:17px; font-weight:600; }
+  .btn-main:active { background:#3a66d8; }
+  .sort-bar { display:flex; gap:8px; }
+  .sort-btn { flex:1; border:1px solid #dde3ee; background:#fff; border-radius:999px; padding:10px 0; font-size:14px; text-align:center; }
+  .sort-btn.active { background:#4a7cf7; color:#fff; border-color:#4a7cf7; }
+  .item { background:#fff; border-radius:14px; padding:14px; margin:12px; box-shadow:0 2px 8px rgba(0,0,0,.05); border-left:4px solid #4a7cf7; }
+  .item h3 { font-size:16px; margin-bottom:4px; }
+  .item .desc { color:#8895aa; font-size:14px; margin-bottom:8px; word-break:break-all; }
+  .meta { display:flex; align-items:center; gap:10px; font-size:13px; color:#5a6b85; flex-wrap:wrap; }
+  .badge { padding:2px 10px; border-radius:999px; font-weight:600; font-size:12px; }
+  .imp-hi { background:#fee2e2; color:#dc2626; } .imp-mid { background:#fef3c7; color:#d97706; } .imp-lo { background:#dcfce7; color:#16a34a; }
+  .overdue { color:#dc2626; font-weight:700; }
+  .del { margin-left:auto; background:#fee2e2; color:#dc2626; border:none; border-radius:8px; padding:6px 14px; font-size:13px; }
+  .empty { text-align:center; color:#a0aec0; padding:40px 0; font-size:15px; }
+  /* 提醒横幅 */
+  .banner { background:#fff4e0; border-bottom:1px solid #efd9a7; color:#96690a; font-size:14px; padding:10px 16px; }
+  .banner b { color:#c2570a; }
+  /* 存储状态条 */
+  .store-bar { background:#eef2fb; border:1px dashed #b9c8ea; border-radius:10px; padding:10px 12px; margin:12px; font-size:13px; color:#5a6b85; }
+  .store-bar.ok { background:#e9f8ef; border-color:#a7ddc0; color:#1d7a46; }
+  .store-bar.warn { background:#fdf3e0; border-color:#efd9a7; color:#96690a; }
+  .store-bar button { background:#4a7cf7; color:#fff; border:none; border-radius:6px; padding:5px 10px; font-size:12px; margin:6px 6px 0 0; }
+  .store-bar .mini { background:#e4e9f5; color:#3a5a9c; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 dbsx 待办</h1>
+  <button class="hdr-btn" onclick="document.getElementById('impFile').click()">导入备份</button>
+  <input type="file" id="impFile" accept=".json" style="display:none" onchange="importData(event)">
+</header>
+
+<!-- 到期提醒横幅 -->
+<div class="banner" id="banner" style="display:none"></div>
+
+<!-- 存储状态（数据文件的连接状态） -->
+<div class="store-bar" id="storeBar">正在检查存储…</div>
+
+<!-- 添加事件 -->
+<div class="card">
+  <input class="inp" id="fName" placeholder="名称 *">
+  <input class="inp" id="fDesc" placeholder="描述（可选）">
+  <div class="row2">
+    <div><label class="lbl">截止日期 *</label><input class="inp" id="fDate" type="date" style="margin-bottom:0"></div>
+    <div><label class="lbl">重要程度 *（1-10）</label><input class="inp" id="fImp" type="number" min="1" max="10" step="1" value="5" style="margin-bottom:0"></div>
+  </div>
+  <div class="chk"><input type="checkbox" id="cbTime"><label for="cbTime">指定时间（小时/分钟）</label></div>
+  <input class="inp" id="fTime" type="time" disabled>
+  <button class="btn-main" onclick="addTodo()">＋ 添加</button>
+</div>
+
+<!-- 排序 -->
+<div class="card sort-bar">
+  <div class="sort-btn" data-mode="deadline" onclick="setSort('deadline')">🗓 日期</div>
+  <div class="sort-btn" data-mode="importance" onclick="setSort('importance')">⭐ 重要</div>
+  <div class="sort-btn" data-mode="weight" onclick="setSort('weight')">⚖ 权重</div>
+</div>
+
+<!-- 列表 -->
+<div id="list"></div>
+<div class="empty" id="empty" style="display:none">暂无待办，添加一个吧 ✨</div>
+
+<script>
+// ============================================================
+// 存储层（数据写在真实文件里，不是浏览器缓存）
+//   支持模式:
+//   - file: File System Access API，用户选一次文件，之后自动读写
+//   - local: 浏览器不支持时降级 localStorage（状态条会提示）
+// 改存储方式只改这里
+// ============================================================
+const KEY = "dbsx_todos";          // localStorage 降级键名
+const HANDLE_KEY = "dbsx_handle";  // IndexedDB 中保存的文件句柄
+const FALLBACK_NAME = "dbsx_data.json";
+
+let todos = [];
+let sortMode = "deadline";
+let handle = null;   // 文件句柄（file 模式）
+let mode = "local";  // file | local
+
+// ---- File System Access API 可用？ ----
+const fsOK = "showOpenFilePicker" in window && "showSaveFilePicker" in window;
+
+// ---- IndexedDB 小助手（存文件句柄）----
+function idb() {
+  return new Promise(function (res, rej) {
+    const r = indexedDB.open("dbsx", 1);
+    r.onupgradeneeded = function () { r.result.createObjectStore("kv"); };
+    r.onsuccess = function () { res(r.result); };
+    r.onerror = function () { rej(r.error); };
+  });
+}
+function idbGet(k) {
+  return idb().then(function (db) {
+    return new Promise(function (res, rej) {
+      const q = db.transaction("kv", "readonly").objectStore("kv").get(k);
+      q.onsuccess = function () { res(q.result); };
+      q.onerror = function () { rej(q.error); };
+    });
+  });
+}
+function idbSet(k, v) {
+  return idb().then(function (db) {
+    return new Promise(function (res, rej) {
+      const q = db.transaction("kv", "readwrite").objectStore("kv").put(v, k);
+      q.onsuccess = function () { res(); };
+      q.onerror = function () { rej(q.error); };
+    });
+  });
+}
+
+// ---- 文件读写 ----
+function saveToFile() {
+  if (!handle) return Promise.resolve(false);
+  return handle.createWritable().then(function (w) {
+    return w.write(JSON.stringify(todos, null, 2)).then(function () { return w.close(); });
+  }).then(function () { return true; });
+}
+function loadFromFile() {
+  return handle.getFile().then(function (f) { return f.text(); }).then(function (text) {
+    if (!text.trim()) { todos = []; return; }
+    todos = JSON.parse(text);
+    if (!Array.isArray(todos)) throw new Error("文件格式不对");
+  });
+}
+
+// ---- 统一保存：有文件写文件，否则写 localStorage ----
+function save() {
+  if (mode === "file") saveToFile().catch(function () { alert("写入数据文件失败！"); });
+  else localStorage.setItem(KEY, JSON.stringify(todos));
+  // APK 版：同步到应用内部存储（原生通知需要读取）
+  if (window.Android && window.Android.saveData) {
+    try { Android.saveData(JSON.stringify(todos)); } catch (e) {}
+  }
+}
+
+// ---- 存储状态条 ----
+function renderStoreBar() {
+  const bar = document.getElementById("storeBar");
+  if (mode === "file" && handle) {
+    bar.className = "store-bar ok";
+    bar.innerHTML = "✅ 数据已连接到文件：<b>" + handle.name + "</b>（每次修改自动保存）<br>" +
+      '<button class="mini" onclick="pickOpen()">更换文件</button>' +
+      '<button class="mini" onclick="pickNew()">另存为新文件</button>';
+  } else if (!fsOK) {
+    bar.className = "store-bar warn";
+    bar.innerHTML = "✅ 数据保存在应用内部存储，每次修改自动保存。<br>🔔 到期前 24 小时自动推送通知（需允许通知权限）";
+  } else if (mode === "local") {
+    bar.className = "store-bar";
+    bar.innerHTML = "📁 数据还没连接到文件（目前存在浏览器缓存）。选择保存位置后，数据将写入真实文件：<br>" +
+      '<button onclick="pickNew()">＋ 新建数据文件</button>' +
+      '<button class="mini" onclick="pickOpen()">打开已有文件</button>';
+  } else {
+    bar.className = "store-bar warn";
+    bar.innerHTML = "🔓 需要重新授权访问数据文件：<br>" +
+      '<button onclick="pickOpen()">选择数据文件</button>';
+  }
+}
+
+// ---- 选择文件 ----
+function pickNew() {
+  if (!fsOK) return alert("当前浏览器不支持文件存储，请用 Chrome 或 Edge 打开");
+  window.showSaveFilePicker({
+    suggestedName: FALLBACK_NAME,
+    types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+  }).then(function (h) {
+    handle = h; mode = "file";
+    return idbSet(HANDLE_KEY, h);
+  }).then(function () {
+    // 首次创建：若浏览器缓存里有旧数据，一并写入新文件（迁移）
+    let old = [];
+    try { old = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { old = []; }
+    if (old.length && todos.length === 0) todos = old;
+    return saveToFile();
+  }).then(function () {
+    localStorage.removeItem(KEY); // 迁移完成，清掉缓存副本
+    renderStoreBar(); render();
+  }).catch(function (e) { if (e.name !== "AbortError") alert("操作失败：" + e.message); });
+}
+function pickOpen() {
+  if (!fsOK) return alert("当前浏览器不支持文件存储，请用 Chrome 或 Edge 打开");
+  window.showOpenFilePicker({
+    types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+  }).then(function (hs) {
+    handle = hs[0]; mode = "file";
+    return idbSet(HANDLE_KEY, handle);
+  }).then(function () { return loadFromFile(); }).then(function () {
+    localStorage.removeItem(KEY);
+    renderStoreBar(); render();
+  }).catch(function (e) { if (e.name !== "AbortError") alert("打开失败：" + e.message); });
+}
+
+// ============================================================
+// 排序逻辑（加新排序方式在这里加）
+// ============================================================
+// ==== 权重公式（改这里）====
+// 权重 = 重要程度×10 − 剩余天数
+function weight(t) { return t.importance * 10 - (parseDate(t) - Date.now()) / 86400000; }
+function parseDate(t) {
+  const d = t.deadline ? new Date(t.deadline.replace(" ", "T")) : new Date(8640000000000000);
+  return isNaN(d) ? new Date(8640000000000000) : d;
+}
+const SORTS = {
+  deadline:   (a, b) => parseDate(a) - parseDate(b),
+  importance: (a, b) => b.importance - a.importance,
+  weight:     (a, b) => weight(b) - weight(a),
+};
+
+// ============================================================
+// 界面
+// ============================================================
+const cbTime = document.getElementById("cbTime");
+const fTime = document.getElementById("fTime");
+cbTime.addEventListener("change", function () { fTime.disabled = !cbTime.checked; });
+
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function badge(imp) {
+  if (imp >= 8) return '<span class="badge imp-hi">高 ' + imp + '</span>';
+  if (imp >= 4) return '<span class="badge imp-mid">中 ' + imp + '</span>';
+  return '<span class="badge imp-lo">低 ' + imp + '</span>';
+}
+function dateText(t) {
+  const d = parseDate(t), now = Date.now();
+  if (d < now) return '<span class="overdue">已逾期 ' + t.deadline + '</span>';
+  if (d - now < 3 * 86400000) return '<span style="color:#d97706;font-weight:600">' + t.deadline + ' ⚠</span>';
+  return t.deadline;
+}
+function render() {
+  const sorted = todos.slice().sort(SORTS[sortMode]);
+  document.getElementById("list").innerHTML = sorted.map(function (t, i) {
+    return '<div class="item">' +
+      '<h3>' + esc(t.name) + '</h3>' +
+      (t.description ? '<div class="desc">' + esc(t.description) + '</div>' : '') +
+      '<div class="meta">' +
+        '<span>🗓 ' + dateText(t) + '</span>' + badge(t.importance) +
+        (sortMode === "weight" ? '<span style="color:#8895aa">权 ' + weight(t).toFixed(1) + '</span>' : '') +
+        '<button class="del" onclick="delTodo(' + i + ')">删除</button>' +
+      '</div></div>';
+  }).join("");
+  document.getElementById("empty").style.display = sorted.length ? "none" : "";
+}
+
+// ---- 操作 ----
+function addTodo() {
+  const name = document.getElementById("fName").value.trim();
+  const date = document.getElementById("fDate").value;
+  const imp = parseInt(document.getElementById("fImp").value, 10);
+  if (!name) return alert("请填写名称");
+  if (!date) return alert("请选择截止日期");
+  if (!(imp >= 1 && imp <= 10)) return alert("重要程度必须是 1-10 的整数");
+  let deadline = date;
+  if (cbTime.checked && fTime.value) deadline += " " + fTime.value;
+  todos.push({ name: name, description: document.getElementById("fDesc").value.trim(), deadline: deadline, importance: imp });
+  save();
+  document.getElementById("fName").value = "";
+  document.getElementById("fDesc").value = "";
+  render();
+}
+function delTodo(i) {
+  const sorted = todos.slice().sort(SORTS[sortMode]);
+  if (confirm('确定要删除「' + sorted[i].name + '」吗？')) {
+    todos = todos.filter(function (t) { return t !== sorted[i]; });
+    save();
+    render();
+  }
+}
+function setSort(m) {
+  sortMode = m;
+  document.querySelectorAll(".sort-btn").forEach(function (b) { b.classList.toggle("active", b.dataset.mode === m); });
+  render();
+}
+
+// ---- 备份：导出 / 导入（与电脑版互通）----
+function exportData() {
+  const blob = new Blob([JSON.stringify(todos, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "dbsx_backup_" + new Date().toISOString().slice(0, 10) + ".json";
+  a.click();
+}
+function importData(ev) {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = function () {
+    try {
+      const arr = JSON.parse(r.result);
+      if (!Array.isArray(arr)) throw new Error("格式不对");
+      todos = arr;
+      save();
+      render();
+      alert("导入成功，共 " + todos.length + " 项");
+    } catch (e) { alert("导入失败：" + e.message); }
+  };
+  r.readAsText(f);
+  ev.target.value = "";
+}
+
+// ============================================================
+// 启动：优先恢复文件句柄
+// ============================================================
+function boot() {
+  if (!fsOK) {
+    // APK 版：优先读应用内部存储，其次浏览器缓存
+    if (window.Android && window.Android.loadData) {
+      try {
+        const raw = Android.loadData();
+        if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) todos = arr; }
+      } catch (e) {}
+    } else {
+      try { todos = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { todos = []; }
+    }
+    mode = "local";
+    renderStoreBar(); render();
+    return;
+  }
+  idbGet(HANDLE_KEY).then(function (h) {
+    if (!h) {
+      mode = "local";
+      try { todos = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { todos = []; }
+      renderStoreBar(); render();
+      return;
+    }
+    handle = h;
+    // 尝试静默恢复权限；失败则等用户点"选择数据文件"重新授权
+    return h.queryPermission({ mode: "readwrite" }).then(function (p) {
+      if (p === "granted") {
+        mode = "file";
+        return loadFromFile();
+      }
+      mode = "local";
+      return null;
+    });
+  }).then(function () {
+    renderStoreBar(); render();
+  }).catch(function () {
+    mode = "local";
+    renderStoreBar(); render();
+  });
+}
+
+// ============================================================
+// 提醒功能
+//   1) 页面打开时: 系统通知(🔔) + 顶部横幅，每分钟检查一次
+//   2) 页面关闭后: 用「📅 日历提醒」导出到系统日历（系统负责响铃）
+// ============================================================
+const DUE_WINDOW = 24 * 3600 * 1000; // 提前 24 小时算"快到期"
+const NOTIF_KEY = "dbsx_notified";   // 已通知记录（每天每项只提醒一次）
+
+function notifiedMap() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+function markNotified(id) {
+  const m = notifiedMap();
+  m[id] = new Date().toISOString().slice(0, 10);
+  localStorage.setItem(NOTIF_KEY, JSON.stringify(m));
+}
+
+// 🔔 开关系统通知
+function toggleNotif() {
+  if (!("Notification" in window)) return alert("当前浏览器不支持系统通知");
+  if (Notification.permission === "granted") {
+    alert("提醒已开启：页面打开时，快到期的待办会自动弹通知。\n\n页面关闭后请用「📅 日历提醒」导出到系统日历。");
+    return;
+  }
+  Notification.requestPermission().then(function (p) {
+    alert(p === "granted" ? "提醒已开启 ✅" : "未授权，无法弹通知（横幅提醒仍有效）");
+  });
+}
+
+// 每分钟检查：横幅 + 系统通知（每项每天只通知一次）
+function checkDue() {
+  const now = Date.now();
+  const soon = [];
+  const overdue = [];
+  todos.forEach(function (t) {
+    const d = parseDate(t);
+    if (d < now) overdue.push(t);
+    else if (d - now <= DUE_WINDOW) soon.push(t);
+  });
+
+  // 横幅
+  const banner = document.getElementById("banner");
+  let html = "";
+  if (overdue.length) html += "🔴 已逾期 " + overdue.length + " 项";
+  if (soon.length) {
+    const names = soon.slice(0, 3).map(function (t) { return t.name; }).join("、");
+    html += (html ? " · " : "") + "⏰ <b>" + soon.length + " 项</b>即将到期：" + names + (soon.length > 3 ? " 等" : "");
+  }
+  if (html) { banner.innerHTML = html; banner.style.display = ""; }
+  else banner.style.display = "none";
+
+  // 系统通知（仅当已授权）
+  if ("Notification" in window && Notification.permission === "granted") {
+    const m = notifiedMap();
+    const today = new Date().toISOString().slice(0, 10);
+    soon.concat(overdue).forEach(function (t) {
+      if (m[t.name + t.deadline] !== today) {
+        try {
+          new Notification("⏰ dbsx 提醒：" + t.name, {
+            body: t.deadline + (t.description ? " · " + t.description : ""),
+          });
+        } catch (e) {}
+        markNotified(t.name + t.deadline);
+      }
+    });
+  }
+}
+
+// 📅 导出到系统日历（页面关闭后也能提醒）
+function exportCalendar() {
+  if (!todos.length) return alert("暂无待办，先添加一个吧");
+  const hours = parseInt(prompt("提前多少小时提醒？（输入数字）", "24"), 10);
+  if (isNaN(hours) || hours < 0) return alert("已取消");
+  const p2 = function (n) { return String(n).padStart(2, "0"); };
+  const fmt = function (d) {
+    return d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + "T" + p2(d.getHours()) + p2(d.getMinutes()) + "00";
+  };
+  const now = new Date();
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//dbsx//CN"];
+  todos.forEach(function (t) {
+    const d = parseDate(t);
+    if (d.getTime() === 8640000000000000) return; // 无有效日期跳过
+    lines.push("BEGIN:VEVENT");
+    lines.push("UID:dbsx-" + t.name + "-" + t.deadline + "@dbsx");
+    lines.push("DTSTAMP:" + fmt(now));
+    lines.push("DTSTART:" + fmt(d));
+    lines.push("DTEND:" + fmt(new Date(d.getTime() + 3600 * 1000)));
+    lines.push("SUMMARY:" + t.name);
+    if (t.description) lines.push("DESCRIPTION:" + t.description);
+    lines.push("BEGIN:VALARM");
+    lines.push("ACTION:DISPLAY");
+    lines.push("TRIGGER:-PT" + hours + "H");
+    lines.push("DESCRIPTION:待办提醒");
+    lines.push("END:VALARM");
+    lines.push("END:VEVENT");
+  });
+  lines.push("END:VCALENDAR");
+  const blob = new Blob([lines.join("\r\n")], { type: "text/calendar" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "dbsx_reminders.ics";
+  a.click();
+  alert("已生成日历文件，请在系统弹窗中选择用「日历」应用打开，导入后即可按时提醒。");
+}
+
+boot();
+checkDue();
+setInterval(checkDue, 60000); // 每分钟检查一次
+</script>
+</body>
+</html>
