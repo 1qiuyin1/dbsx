@@ -13,16 +13,20 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install SDK
+      - name: Install SDK components
         run: |
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
           yes | sdkmanager --licenses
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-      - name: Build
-        run: gradle assembleDebug
-      - uses: actions/upload-artifact@v4
+      - name: Install Gradle 8.13
+        run: |
+          curl -sL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
+          unzip -q /tmp/gradle.zip -d /opt
+          echo "/opt/gradle-8.13/bin" >> $GITHUB_PATH
+          gradle -v
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: dbsx-apk
           path: app/build/outputs/apk/debug/app-debug.apk
